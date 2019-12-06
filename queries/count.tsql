@@ -1,0 +1,50 @@
+WITH
+  ser AS (
+    SELECT s.*
+    FROM
+        StackModelFitSer AS s
+    {serwhere}
+)
+, seruniq AS (
+    SELECT *
+    FROM
+    ( SELECT *
+        ,ROW_NUMBER () OVER (
+            PARTITION BY objID 
+            ORDER BY bestDetection DESC, primaryDetection DESC
+        ) AS rown -- enumerate inside common id group
+        FROM ser
+    ) AS t
+    WHERE t.rown = 1 -- only first
+)
+, shape AS (
+    SELECT s.*
+    FROM 
+        ForcedGalaxyShape AS s
+    {shapewhere}
+)
+, shapeuniq AS (
+    SELECT *
+    FROM ( 
+        SELECT 
+            *
+          , ROW_NUMBER () OVER (
+                PARTITION BY objID 
+                ORDER BY
+                -- for f in {filters} --
+                CASE WHEN {f}GalFlags = 0 THEN 1
+                     WHEN {f}GalFlags = 4 THEN 2
+                     ELSE 3 END ASC
+                -- end --
+        ) AS rown -- enumerate inside common id group
+        FROM shape
+    ) AS t
+    WHERE t.rown = 1 -- only first
+)
+SELECT COUNT(*)
+-- INTO {name}
+
+FROM seruniq
+INNER JOIN shapeuniq ON shapeuniq.objID = seruniq.objID
+{joinwhere}
+-- vim:ft=sqlanywhere

@@ -1,0 +1,148 @@
+WITH
+nearobj AS (
+    SELECT
+        nb.objID, r.RFGC
+    FROM
+        MyDB.RFGCfull AS r
+        CROSS APPLY fGetNearbyObjEq(r.RAJ2000, r.DEJ2000, {s}) AS nb
+    -- WHERE r.RFGC < 10
+)
+, panpos AS (
+    SELECT
+        o.objID, o.objName, o.raMean, o.decMean
+    FROM
+        MeanObjectView AS o
+        INNER JOIN nearobj ON (o.objID=nearobj.objID)
+)
+, ser AS (
+    SELECT s.*
+    FROM
+        StackModelFitSer AS s
+        INNER JOIN nearobj ON (s.objID=nearobj.objID)
+)
+, seruniq AS (
+    SELECT *
+    FROM
+    ( SELECT *
+        ,ROW_NUMBER () OVER (
+            PARTITION BY objID 
+            ORDER BY bestDetection DESC, primaryDetection DESC
+        ) AS rown -- enumerate inside common id group
+        FROM ser
+    ) AS t
+    WHERE t.rown = 1 -- only first
+)
+, shape AS (
+    SELECT s.*
+    FROM ForcedGalaxyShape AS s
+         INNER JOIN nearobj ON (s.objID=nearobj.objID)
+)
+, shapeuniq AS (
+    SELECT *
+    FROM ( 
+        SELECT 
+            *
+          , ROW_NUMBER () OVER (
+                PARTITION BY objID 
+                ORDER BY
+                -- for f in {filters} --
+                CASE WHEN {f}GalFlags = 0 THEN 1
+                     WHEN {f}GalFlags = 4 THEN 2
+                     ELSE 3 END ASC
+                -- end --
+        ) AS rown -- enumerate inside common id group
+        FROM shape
+    ) AS t
+    WHERE t.rown = 1 -- only first
+)
+, pet AS (
+    SELECT p.*
+    FROM
+        StackPetrosian AS p
+        INNER JOIN nearobj ON (p.objID=nearobj.objID)
+)
+, petuniq AS (
+    SELECT *
+    FROM
+    ( SELECT *
+        ,ROW_NUMBER () OVER (
+            PARTITION BY objID 
+            ORDER BY bestDetection DESC, primaryDetection DESC
+        ) AS rown -- enumerate inside common id group
+        FROM pet
+    ) AS t
+    WHERE t.rown = 1 -- only first
+)
+, kron AS (
+    SELECT
+        a.objID,
+        a.bestDetection AS RadiusbestDetection, a.primaryDetection AS RadiusprimaryDetection,
+        -- for f in {filters} --
+        o.{f}MeanKronMag AS {f}kronMag, a.{f}KronRad AS {f}kronRadius
+        -- end --
+    FROM
+        StackObjectAttributes AS a
+        INNER JOIN nearobj ON (a.objID=nearobj.objID)
+        LEFT JOIN MeanObjectView AS o on (o.objID=a.objID)
+)
+, kronuniq AS (
+    SELECT *
+    FROM
+    ( SELECT *
+        ,ROW_NUMBER () OVER (
+            PARTITION BY objID 
+            ORDER BY RadiusbestDetection DESC, RadiusprimaryDetection DESC
+        ) AS rown -- enumerate inside common id group
+        FROM kron
+    ) AS t
+    WHERE t.rown = 1 -- only first
+)
+
+SELECT 
+    rfgc.*, 
+    --for f in [objID, objName, raMean, decMean] -- 
+    panpos.{f} 
+    -- end -- 
+    ,
+    -- for detec in [best, primary] --
+    seruniq.{detec}Detection AS ser{detec}Detection
+    -- end --
+    ,
+    -- for f in {filters} --
+    -- for type in [Radius, Ab, Phi, Ra, Dec, Mag] -- 
+    seruniq.{f}Ser{type} 
+    -- end --
+    -- end --
+    ,
+    -- for f in {filters}--
+    -- for type in [Minor, Major, Phi, Index, Mag, Flags] -- 
+    shapeuniq.{f}Gal{type}, 
+    -- end --
+    -- end--
+    ,
+    -- for detec in [best, primary] --
+    petuniq.{detec}Detection AS pet{detec}Detection
+    -- end --
+    ,
+    -- for detec in [best, primary] --
+    kronuniq.Radius{detec}Detection AS kronRadius{detec}Detection
+    -- end --
+    , 
+    -- for type in [pet, kron] -- 
+    -- for f in {filters} --
+    -- for q in [Mag, Radius] -- 
+    {type}uniq.{f}{type}{q} 
+    -- end --
+    -- end --
+    -- end -- 
+INTO {name}
+
+FROM MyDB.RFGCfull as rfgc
+LEFT JOIN nearobj   ON nearobj.RFGC    = rfgc.RFGC
+LEFT JOIN panpos    ON panpos.objID    = nearobj.objID
+LEFT JOIN seruniq   ON seruniq.objID   = panpos.objID
+LEFT JOIN shapeuniq ON shapeuniq.objID = seruniq.objID
+LEFT JOIN kronuniq  ON kronuniq.objID  = shapeuniq.objID
+LEFT JOIN petuniq   ON petuniq.objID   = kronuniq.objID
+
+-- vim:ft=sqlanywhere

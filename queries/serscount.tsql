@@ -1,0 +1,28 @@
+WITH
+  ser AS (
+    SELECT s.bestDetection, s.primaryDetection, s.objID, 
+           -- for f in {filters} --
+           {f}SerAb, {f}SerRadius
+           -- end --
+    FROM
+        StackModelFitSer AS s
+    {serwhere}
+)
+, seruniq AS (
+    SELECT objID
+    FROM
+    ( SELECT *
+        ,ROW_NUMBER () OVER (
+            PARTITION BY objID 
+            ORDER BY bestDetection DESC, primaryDetection DESC
+        ) AS rown -- enumerate inside common id group
+        FROM ser
+    ) AS t
+    WHERE t.rown = 1 -- only first
+)
+
+SELECT COUNT(*)
+-- INTO {name}
+
+FROM seruniq
+-- vim:ft=sqlanywhere
